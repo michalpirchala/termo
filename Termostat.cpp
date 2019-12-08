@@ -140,29 +140,27 @@ int Termostat::getActiveFurnace(){
  * servo action if needed
  */
 void Termostat::servoAction(){
-	if (this->servoShouldStartBySeason()){
-		if (!this->servoState){
-			this->servoState = 1;
-			this->servoOpenTime = millis()+(unsigned long)this->servoTime*(unsigned long)1000;
-			this->servoCloseTime = 0;
-		}
-	} else if (this->servoShouldStopBySeason()){
-		if (this->servoState){
-			this->servoState = 0;
-			this->servoCloseTime = millis()+(unsigned long)this->servoTime*(unsigned long)1000;
-			this->servoOpenTime = 0;
+	if (this->servoShouldStartBySeason() && !this->servoState){
+		this->servoState = 1;
+		this->servoOpenTime = millis();
+		this->servoCloseTime = 0;
+	} else if (this->servoShouldStopBySeason() && this->servoState){
+		this->servoState = 0;
+		this->servoCloseTime = millis();
+		this->servoOpenTime = 0;
 
-			//in summer time run pump action immediately to turn pump off
-			if (!this->isWinterTime()){
-				this->pumpAction();
-			}
+		//in summer time run pump action immediately to turn pump off
+		if (!this->isWinterTime()){
+			this->pumpAction();
 		}
 	}
 
-	if (this->isServoOpening()){
+	bool isOpening = this->isServoOpening(), isClosing = this->isServoClosing();
+
+	if (isOpening){
 		digitalWrite(this->servoOpenPin, SERVO_OPEN_ON);
 		digitalWrite(this->servoClosePin, !SERVO_CLOSE_ON);
-	} if (this->isServoClosing()){
+	} else if (isClosing){
 		digitalWrite(this->servoOpenPin, !SERVO_OPEN_ON);
 		digitalWrite(this->servoClosePin, SERVO_CLOSE_ON);
 	} else {
@@ -174,10 +172,21 @@ bool Termostat::isServoOpened(){
 	return this->servoState;
 }
 bool Termostat::isServoOpening(){
-	return this->servoOpenTime > millis();
+	if (this->servoOpenTime==0) return false;
+	bool isOpening = millis() - this->servoOpenTime < (unsigned long) (this->servoTime*1000);
+
+	//reset openTime if not opening anymore, to prevent opening after millis oferflows
+	if (!isOpening) this->servoOpenTime = 0;
+
+	return isOpening;
 }
 bool Termostat::isServoClosing(){
-	return this->servoCloseTime > millis();
+	if (this->servoCloseTime==0) return false;
+	bool isClosing = millis() - this->servoCloseTime < (unsigned long) (this->servoTime*1000);
+
+	if (isClosing) this->servoCloseTime = 0;
+	
+	return isClosing;
 }
 bool Termostat::servoShouldStartBySeason(){
 	if (this->isWinterTime()){

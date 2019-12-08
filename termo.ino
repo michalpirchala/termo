@@ -24,8 +24,6 @@ TM1638plus TMmodul(8, 9, 7);
 Termostat termostat(sensors, SERVO_OPEN_PIN, SERVO_CLOSE_PIN, WINTER_PIN, ERROR_LED_PIN, SERVO_TIME, FURNACES_COUNT, pumpPins, addresses);
 Display display(&TMmodul, &termostat);
 
-void(* resetFunc) (void) = 0;
-
 unsigned long lastUpdateTime = 0;
 
 void setup() {
@@ -37,10 +35,7 @@ void setup() {
 }
 
 void loop() {
-	//reset if time overflows
-	if (millis()<lastUpdateTime) resetFunc();
-
-	if (millis()>lastUpdateTime+REFRESH_TIME*1000){
+	if (millis() - lastUpdateTime >= REFRESH_TIME*1000){
 		updateTermo();
 	}
 	
