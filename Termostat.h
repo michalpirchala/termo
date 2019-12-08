@@ -18,7 +18,7 @@ Error codes:
 
 class Termostat{
 	public:
-		Termostat(DallasTemperature senors, int servoOpenPin, int servoClosePin, int WinterPin, int errorLedPin, int servoTime, int furnacesCount, int *pumpPins, DeviceAddress *addresses);
+		Termostat(DallasTemperature *sensors, int servoOpenPin, int servoClosePin, int WinterPin, int errorLedPin, int servoTime, int furnacesCount, int *pumpPins, DeviceAddress *addresses);
 		bool update();
 		
 		float* getTemperatures();
@@ -47,7 +47,6 @@ class Termostat{
 		;
 		
 		int tempPin, servoOpenPin, servoClosePin, winterPin, errorLedPin,
-			servoTime,
 			tempCount,	//sensors count for runtime check
 			error,		//error code
 			activeFurnace,
@@ -57,9 +56,9 @@ class Termostat{
 
 		bool activePump, servoState, firstRun;
 
-		unsigned long servoCloseTime, servoOpenTime;
+		unsigned long servoCloseTime, servoOpenTime, servoTime;
 
-		DallasTemperature sensors;
+		DallasTemperature *sensors;
 		DeviceAddress *addresses;
 		
 		void setActiveFurnace();

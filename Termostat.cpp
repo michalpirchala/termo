@@ -1,7 +1,7 @@
 #include "Termostat.h"
 #include <EEPROM.h>
 
-Termostat::Termostat(DallasTemperature senors, int servoOpenPin, int servoClosePin, int WinterPin, int errorLedPin, int servoTime, int furnacesCount, int *pumpPins, DeviceAddress *addresses){
+Termostat::Termostat(DallasTemperature *sensors, int servoOpenPin, int servoClosePin, int winterPin, int errorLedPin, int servoTime, int furnacesCount, int *pumpPins, DeviceAddress *addresses){
 	this->sensors = sensors;
 	this->servoOpenPin = servoOpenPin;
 	this->servoClosePin = servoClosePin;
@@ -34,12 +34,13 @@ Termostat::Termostat(DallasTemperature senors, int servoOpenPin, int servoCloseP
 
 	this->loadVariables();
 	this->setError(0);
-	this->sensors.begin();
+
+	sensors->begin();
 	this->checkTempCount();
 }
 
 void Termostat::checkTempCount(){
-	this->tempCount = this->sensors.getDeviceCount();
+	this->tempCount = this->sensors->getDeviceCount();
 	
 	if (this->tempCount!=this->furnacesCount+1){
 		this->setError(1);
@@ -52,24 +53,29 @@ bool Termostat::update(){
 	int i;
 	int hasError = 0;
 	
-	this->sensors.requestTemperatures();
+	if (this->getError()==1){
+		this->checkTempCount();
+		return;
+	}
+
+	this->sensors->requestTemperatures();
 	
 	for (i=0;i<this->tempCount;i++){
-		this->temperatures[i] = this->sensors.getTempC(this->addresses[i]);
-
-		Serial.print("SENSOR ");Serial.print(i);Serial.print(": ");Serial.println(this->temperatures[i]);
+		this->temperatures[i] = this->sensors->getTempC(this->addresses[i]);
 
 		if (this->temperatures[i]==-127 || this->temperatures[i]==-85){
 			hasError = 10+i;
 		}
 	}
 
-	//if error occured at getting temperature, set error to 2
+	//if error occured at getting temperature, set error to hasError code
 	if (hasError){
 		this->setError(hasError);
 		return false;
-	} else if (this->getError()) {//no error occured but we are still in error state
-		 this->setError(0);
+	} else if (this->getError()) {
+		//no error occured but we are still in error state
+		//only error 1x is possible now, which is fixed if hasError is 0
+		this->setError(0);
 	}
 
 	//if we have an error, do not continue
@@ -140,11 +146,11 @@ int Termostat::getActiveFurnace(){
  * servo action if needed
  */
 void Termostat::servoAction(){
-	if (this->servoShouldStartBySeason() && !this->servoState){
+	if (this->servoShouldStartBySeason() && !this->isServoOpened()){
 		this->servoState = 1;
 		this->servoOpenTime = millis();
 		this->servoCloseTime = 0;
-	} else if (this->servoShouldStopBySeason() && this->servoState){
+	} else if (this->servoShouldStopBySeason() && this->isServoOpened()){
 		this->servoState = 0;
 		this->servoCloseTime = millis();
 		this->servoOpenTime = 0;
@@ -160,10 +166,12 @@ void Termostat::servoAction(){
 	if (isOpening){
 		digitalWrite(this->servoOpenPin, SERVO_OPEN_ON);
 		digitalWrite(this->servoClosePin, !SERVO_CLOSE_ON);
-	} else if (isClosing){
+	}
+	if (isClosing){
 		digitalWrite(this->servoOpenPin, !SERVO_OPEN_ON);
 		digitalWrite(this->servoClosePin, SERVO_CLOSE_ON);
-	} else {
+	}
+	if (!isOpening && !isClosing){
 		digitalWrite(this->servoOpenPin, !SERVO_OPEN_ON);
 		digitalWrite(this->servoClosePin, !SERVO_CLOSE_ON);
 	}
@@ -173,7 +181,7 @@ bool Termostat::isServoOpened(){
 }
 bool Termostat::isServoOpening(){
 	if (this->servoOpenTime==0) return false;
-	bool isOpening = millis() - this->servoOpenTime < (unsigned long) (this->servoTime*1000);
+	bool isOpening = millis() - this->servoOpenTime < this->servoTime*1000;
 
 	//reset openTime if not opening anymore, to prevent opening after millis oferflows
 	if (!isOpening) this->servoOpenTime = 0;
@@ -182,10 +190,10 @@ bool Termostat::isServoOpening(){
 }
 bool Termostat::isServoClosing(){
 	if (this->servoCloseTime==0) return false;
-	bool isClosing = millis() - this->servoCloseTime < (unsigned long) (this->servoTime*1000);
+	bool isClosing = millis() - this->servoCloseTime < this->servoTime*1000;
 
-	if (isClosing) this->servoCloseTime = 0;
-	
+	if (!isClosing) this->servoCloseTime = 0;
+
 	return isClosing;
 }
 bool Termostat::servoShouldStartBySeason(){

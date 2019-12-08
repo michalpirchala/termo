@@ -3,20 +3,20 @@
 Display::Display(TM1638plus *module, Termostat *termostat){
 	this->module = module;
 	this->termostat = termostat;
-	this->intensity = 1;
+	this->intensity = 0;
 	this->prevButtons = 0;
 	this->mode = 0;
 	this->active = 1;
 
 	this->module->reset();
-	this->module->brightness(this->intensity);
 	this->module->displayText("TERMOMP3");
+	this->module->brightness(this->intensity);
 }
 
 void Display::doAction(){
 	this->buttons = this->module->readButtons();
 
-	if (this->buttons!=this->prevButtons && (this->prevButtons==0b00000000 || this->buttons & this->prevButtons==0b00000000)){
+	if (this->buttons!=this->prevButtons && this->prevButtons==0b00000000){
 		delay(50);
 		this->buttons = this->module->readButtons();
 		this->doActionByButtons();
@@ -80,7 +80,10 @@ void Display::showScreen(int screen){
 	}
 
 	if (screen==0){
-		sprintf(message, "%2.2f%2.2f", this->termostat->getFurnaceTemp(), this->termostat->getWaterTemp());
+		char str_ft[6], str_wt[6];
+		dtostrf(this->termostat->getFurnaceTemp(), 5, 2, str_ft);
+		dtostrf(this->termostat->getWaterTemp(), 5, 2, str_wt);
+		sprintf(message, "%s%s", str_ft, str_wt);
 	} else if (screen==1){
 		this->formatValueMsg(message, "RO", this->termostat->getValueByScreen(screen));
 	} else if (screen==2){
@@ -109,12 +112,15 @@ void Display::setBlocked(bool blocked){
 }
 void Display::setActive(bool activity){
 	this->active = activity;
-	this->module->brightness((activity) ? this->intensity : 0);
+	this->module->sendCommand(0x80 | (activity ? 8 : 0) | min(7, this->intensity));
+
 }
 void Display::okMsg(){
-	this->showOnScreen("OK");
+	this->showOnScreen("OK      ");
 	delay(OK_DELAY);
 }
 void Display::formatValueMsg(char *message, char *valueName, float value){
-	sprintf(message, "%s %3.2f", valueName, value);
+	char str_temp[6];
+	dtostrf(value, 5, 2, str_temp);
+	sprintf(message, "%s %6s", valueName, str_temp);
 }
