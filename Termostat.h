@@ -1,5 +1,9 @@
 #include <OneWire.h>
-#include <DallasTemperature.h>
+#ifdef TEST
+	#include "sensorMock.h"
+#else
+	#include <DallasTemperature.h>
+#endif
 /*
 Error codes:
 1 - not according temp sensors count at start
@@ -37,7 +41,7 @@ class Termostat{
 		float getValueByScreen(int screen);
 		void lowerValueByScreen(int screen), upperValueByScreen(int screen);
 
-		bool isPumpActive(), isServoClosing(), isServoOpening(), isServoOpened();
+		bool isPumpActive(), isServoClosing(), isServoOpening(), isServoOpened(), isWinterTime();
 		
 	private:
 		float temperatures[3],
@@ -66,6 +70,6 @@ class Termostat{
 		void servoAction();
 		void pumpAction();
 		void checkTempCount();
-		bool servoShouldStart(), servoShouldStop(), isWinterTime(), servoShouldStopBySeason(), servoShouldStartBySeason();
+		bool servoShouldOpen(), servoShouldClose(), servoShouldCloseBySeason(), servoShouldOpenBySeason();
 		void startPump(), stopPumps();
 };

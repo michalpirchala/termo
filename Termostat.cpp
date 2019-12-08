@@ -87,10 +87,10 @@ bool Termostat::update(){
 
 	if (this->firstRun){
 		//set opposite servo state to make sure action happens at the beginning
-		if (this->servoShouldStop()){
+		if (this->servoShouldClose()){
 			this->servoState = 1;
 		}
-		if (this->servoShouldStart()){
+		if (this->servoShouldOpen()){
 			this->servoState = 0;
 		}
 
@@ -146,11 +146,11 @@ int Termostat::getActiveFurnace(){
  * servo action if needed
  */
 void Termostat::servoAction(){
-	if (this->servoShouldStartBySeason() && !this->isServoOpened()){
+	if (this->servoShouldOpenBySeason() && !this->isServoOpened()){
 		this->servoState = 1;
 		this->servoOpenTime = millis();
 		this->servoCloseTime = 0;
-	} else if (this->servoShouldStopBySeason() && this->isServoOpened()){
+	} else if (this->servoShouldCloseBySeason() && this->isServoOpened()){
 		this->servoState = 0;
 		this->servoCloseTime = millis();
 		this->servoOpenTime = 0;
@@ -196,24 +196,24 @@ bool Termostat::isServoClosing(){
 
 	return isClosing;
 }
-bool Termostat::servoShouldStartBySeason(){
+bool Termostat::servoShouldOpenBySeason(){
 	if (this->isWinterTime()){
-		return this->servoShouldStart() && this->isPumpActive();
+		return this->servoShouldOpen() && this->isPumpActive();
 	} else {
-		return this->servoShouldStart();//pump will be activated by servo state in summer
+		return this->servoShouldOpen();//pump will be activated by servo state in summer
 	}
 }
-bool Termostat::servoShouldStopBySeason(){
+bool Termostat::servoShouldCloseBySeason(){
 	if (this->isWinterTime()){
-		return this->servoShouldStop() || !this->isPumpActive();
+		return this->servoShouldClose() || !this->isPumpActive();
 	} else {
-		return this->servoShouldStop();
+		return this->servoShouldClose();
 	}
 }
-bool Termostat::servoShouldStart(){
+bool Termostat::servoShouldOpen(){
 	return this->getFurnaceTemp()>=this->getWaterTemp()+this->diffServoOpen;
 }
-bool Termostat::servoShouldStop(){
+bool Termostat::servoShouldClose(){
 	return this->getFurnaceTemp()<this->getWaterTemp()+this->diffServoClose;
 }
 
@@ -297,7 +297,7 @@ void Termostat::saveVariables(){
 	EEPROM.put(20, this->tempPump);
 }
 void Termostat::resetVariables(){
-	EEPROM.put(0, 0.25);
+	EEPROM.put(0, 0.0);
 	EEPROM.put(10, 0.0);
 	EEPROM.put(20, 30.0);
 }
