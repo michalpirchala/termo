@@ -1,34 +1,47 @@
 #include "Termostat.h"
 #include <EEPROM.h>
 
-Termostat::Termostat(DallasTemperature sensors, int servoOpenPin, int servoClosePin, int servoTime, int pumpPin, int pump2Pin, int winterPin){
-	//nastavenie objektu
+Termostat::Termostat(DallasTemperature senors, int servoOpenPin, int servoClosePin, int WinterPin, int errorLedPin, int servoTime, int furnacesCount, int *pumpPins, DeviceAddress *addresses){
 	this->sensors = sensors;
 	this->servoOpenPin = servoOpenPin;
 	this->servoClosePin = servoClosePin;
-	this->servoTime = servoTime;
-	this->pumpPin = pumpPin;
-	this->pump2Pin = pump2Pin;
 	this->winterPin = winterPin;
+	this->errorLedPin = errorLedPin;
+	this->servoTime = servoTime;
+	this->furnacesCount = furnacesCount;
+	this->pumpPins = pumpPins;
+	this->addresses = addresses;
 	this->activePump = 0;
 	this->servoOpenTime = 0;
 	this->servoCloseTime = 0;
 	this->servoState = 0;
 	this->firstRun = 1;
-	
-	this->loadVariables();
 
+	pinMode(this->errorLedPin, OUTPUT);
+	pinMode(this->servoOpenPin, OUTPUT);
+	pinMode(this->servoClosePin, OUTPUT);
+	pinMode(this->winterPin, INPUT_PULLUP);
+
+	//init - everything runs
+	digitalWrite(this->errorLedPin, 0);
+	digitalWrite(this->servoOpenPin, SERVO_OPEN_ON);
+	digitalWrite(this->servoClosePin, !SERVO_CLOSE_ON);
+
+	for (int i = 0; i < furnacesCount; i++){
+		pinMode(pumpPins[i], OUTPUT);
+		digitalWrite(pumpPins[i], PUMP_ON);
+	}
+
+	this->loadVariables();
 	this->setError(0);
-	
 	this->sensors.begin();
-	
-	this->controllTempCount();
+	this->checkTempCount();
 }
 
-void Termostat::controllTempCount(){
+void Termostat::checkTempCount(){
 	this->tempCount = this->sensors.getDeviceCount();
 	
-	if (this->tempCount<2 && this->tempCount>3){
+	if (this->tempCount!=this->furnacesCount+1){
 		this->setError(1);
 	} else {
 		this->setError(0);
@@ -37,52 +50,37 @@ void Termostat::controllTempCount(){
 
 bool Termostat::update(){
 	int i;
-	bool hasError = 0;
+	int hasError = 0;
 	
-	//ak mame chybu 1, tak skusime ci sa opravila, chyba 2 sa opravi v tejto metode
-	if (this->getError() && this->getError()!=2){
-		if (this->getError()==1) this->controllTempCount();
-
-		if (this->getError()) return false;
-	}
-
-	//ziskanie teploty
 	this->sensors.requestTemperatures();
 	
 	for (i=0;i<this->tempCount;i++){
-		this->temperatures[i] = this->sensors.getTempCByIndex(i);
-		Serial.print("SENZOR ");Serial.print(i);Serial.print(": ");Serial.println(this->temperatures[i]);
-		if (this->temperatures[i]==-127){
-			hasError = 1;
+		this->temperatures[i] = this->sensors.getTempC(this->addresses[i]);
+
+		Serial.print("SENSOR ");Serial.print(i);Serial.print(": ");Serial.println(this->temperatures[i]);
+
+		if (this->temperatures[i]==-127 || this->temperatures[i]==-85){
+			hasError = 10+i;
 		}
 	}
 
-	//zle poradie senzorov DOMA
-	// 0 - viadrus
-	// 1 - voda
-	// 2 - olejovy	
-	float temporary = this->temperatures[0];
-	this->temperatures[0] = this->temperatures[1];
-	this->temperatures[1] = this->temperatures[2];
-	this->temperatures[2] = temporary;
-
-	//ak mame chybu, tak vyhodime chybu 2
+	//if error occured at getting temperature, set error to 2
 	if (hasError){
-		this->setError(2);
+		this->setError(hasError);
 		return false;
-	} else {//ak nie a mali sme, tak ju zrusime
-		if (this->getError()==2) this->setError(0);
+	} else if (this->getError()) {//no error occured but we are still in error state
+		 this->setError(0);
 	}
 
-	//nepokracujeme dalej, termostat ostava v error state
+	//if we have an error, do not continue
 	if (this->getError()){
 		return false;
 	}
 
-	this->setActiveBoiler();
+	this->setActiveFurnace();
 
 	if (this->firstRun){
-		//servo sa musi vypnut alebo zapnut na zaciatku, takze mu nastavime akoze opacnu hodnotu ako by malo mat, cim sa zabezpeci ze sa vypne/zapne
+		//set opposite servo state to make sure action happens at the beginning
 		if (this->servoShouldStop()){
 			this->servoState = 1;
 		}
@@ -93,16 +91,12 @@ bool Termostat::update(){
 		this->firstRun = 0;
 	}
 
-	this->pumpAction();//najprv cerpadlo
-	this->servoAction();//ak ide cerpadlo tak aj servo
-	
+	this->pumpAction();
+	this->servoAction();
 	
 	return true;
 }
 
-/*
- * Vrati pocet senzorov
- */
 int Termostat::getTempCount(){
 	return this->tempCount;
 }
@@ -112,36 +106,38 @@ float* Termostat::getTemperatures(){
 }
 
 /*
- * vrati teplotu vody, ktoru ohrievame
+ * returns temp of water we are heating
  */
 float Termostat::getWaterTemp(){
 	return this->temperatures[0];
 }
 /*
- * Vrati teplotu peca (teplejsieho)
+ * returns active furnace temp
  */
-float Termostat::getBoilerTemp(){
-	return this->temperatures[this->activeBoiler];
+float Termostat::getFurnaceTemp(){
+	return this->temperatures[this->activeFurnace+1];
 }
+
 /*
- * nastavi aktivny pec podla toho ktory je teplejsi
+ * set active furnace to the warmest one
  */
-void Termostat::setActiveBoiler(){
-	if (this->tempCount==2){
-		this->activeBoiler = 1;	
-	} else {
-		if (this->temperatures[1]>this->temperatures[2]){
-			this->activeBoiler = 1;
-		} else {
-			this->activeBoiler = 2;
+void Termostat::setActiveFurnace(){
+	this->activeFurnace = 0;	
+
+	if (this->furnacesCount>1){
+		float highestTemp = this->temperatures[1];
+
+		for (int i = 2; i<=this->tempCount; i++){
+			if (this->temperatures[i]>highestTemp) this->activeFurnace = i-1;
 		}
 	}	
 }
-int Termostat::getActiveBoiler(){
-	return this->activeBoiler;
+int Termostat::getActiveFurnace(){
+	return this->activeFurnace;
 }
+
 /*
- * urobi akciu serva - ak je potrebna
+ * servo action if needed
  */
 void Termostat::servoAction(){
 	if (this->servoShouldStartBySeason()){
@@ -150,33 +146,28 @@ void Termostat::servoAction(){
 			this->servoOpenTime = millis()+(unsigned long)this->servoTime*(unsigned long)1000;
 			this->servoCloseTime = 0;
 		}
-	} else {//istota
-		if (this->servoShouldStopBySeason()){
-			if (this->servoState){
-				this->servoState = 0;
-				this->servoCloseTime = millis()+(unsigned long)this->servoTime*(unsigned long)1000;
-				this->servoOpenTime = 0;
-				if (!this->isWinterTime()){//cerpadlo vypneme hned, aby sa necakalo na dalsi update
-					this->pumpAction();
-				}
+	} else if (this->servoShouldStopBySeason()){
+		if (this->servoState){
+			this->servoState = 0;
+			this->servoCloseTime = millis()+(unsigned long)this->servoTime*(unsigned long)1000;
+			this->servoOpenTime = 0;
+
+			//in summer time run pump action immediately to turn pump off
+			if (!this->isWinterTime()){
+				this->pumpAction();
 			}
-		} else {//hystereza, nerobime nic
-			//this->servoOpenTime = 0;
-			//this->servoCloseTime = 0;
 		}
 	}
 
 	if (this->isServoOpening()){
 		digitalWrite(this->servoOpenPin, SERVO_OPEN_ON);
 		digitalWrite(this->servoClosePin, !SERVO_CLOSE_ON);
-	} else {//istota
-		if (this->isServoClosing()){
-			digitalWrite(this->servoOpenPin, !SERVO_OPEN_ON);
-			digitalWrite(this->servoClosePin, SERVO_CLOSE_ON);
-		} else {
-			digitalWrite(this->servoOpenPin, !SERVO_OPEN_ON);
-			digitalWrite(this->servoClosePin, !SERVO_CLOSE_ON);
-		}
+	} if (this->isServoClosing()){
+		digitalWrite(this->servoOpenPin, !SERVO_OPEN_ON);
+		digitalWrite(this->servoClosePin, SERVO_CLOSE_ON);
+	} else {
+		digitalWrite(this->servoOpenPin, !SERVO_OPEN_ON);
+		digitalWrite(this->servoClosePin, !SERVO_CLOSE_ON);
 	}
 }
 bool Termostat::isServoOpened(){
@@ -192,7 +183,7 @@ bool Termostat::servoShouldStartBySeason(){
 	if (this->isWinterTime()){
 		return this->servoShouldStart() && this->isPumpActive();
 	} else {
-		return this->servoShouldStart();//nepozerame ci je cerpadlo zapnute, lebo ono sa zapne podla serva v lete
+		return this->servoShouldStart();//pump will be activated by servo state in summer
 	}
 }
 bool Termostat::servoShouldStopBySeason(){
@@ -203,61 +194,55 @@ bool Termostat::servoShouldStopBySeason(){
 	}
 }
 bool Termostat::servoShouldStart(){
-	return (this->getBoilerTemp()>=this->getWaterTemp()+this->diffServoOpen);
+	return this->getFurnaceTemp()>=this->getWaterTemp()+this->diffServoOpen;
 }
 bool Termostat::servoShouldStop(){
-	return (this->getBoilerTemp()<this->getWaterTemp()+this->diffServoClose);
+	return this->getFurnaceTemp()<this->getWaterTemp()+this->diffServoClose;
 }
 
 /*
- * zapne/vypne cerpadlo - ak je potrebne
+ * turn pump on/off
  */
 void Termostat::pumpAction(){
-	if (this->isWinterTime()){ //v zime podla nastavenej teploty
-		if (this->getBoilerTemp()>=this->tempPump){
-			if (this->activeBoiler==1){
-				this->startPump1();
-			} else if (this->activeBoiler==2){
-				this->startPump2();
-			}
+	if (this->isWinterTime()){//in winter according to set tempPump
+		if (this->getFurnaceTemp()>=this->tempPump){
+			this->startPump();
 		}
-		if (this->getBoilerTemp()<=this->tempPump-PUMP_OFF_HYST){
+		if (this->getFurnaceTemp()<=this->tempPump-PUMP_OFF_HYST){
 			this->stopPumps();
 		}
-	} else {//v lete
-		if (this->servoState){ //ak je otvorene servo zapneme cerpadlo
-			if (this->activeBoiler==1){
-				this->startPump1();
-			} else if (this->activeBoiler==2){
-				this->startPump2();
-			}
+	} else {//summer
+		if (this->servoState){ //only if servo is open
+			this->startPump();
 		} else {
 			this->stopPumps();
 		}
 	}
 }
-void Termostat::startPump1(){
-	this->activePump = 1;
-	digitalWrite(this->pumpPin, PUMP_ON);
-	digitalWrite(this->pump2Pin, !PUMP_ON);
-}
-void Termostat::startPump2(){
-	this->activePump = 1;
-	digitalWrite(this->pumpPin, !PUMP_ON);
-	digitalWrite(this->pump2Pin, PUMP_ON);
+void Termostat::startPump(){
+	this->activePump = 0;
+	for (int i = 0; i < this->furnacesCount; i++){
+		if (this->activeFurnace==i){
+			digitalWrite(this->pumpPins[i], PUMP_ON);
+			this->activePump = 1;
+		} else {
+			digitalWrite(this->pumpPins[i], !PUMP_ON);
+		}
+	}
 }
 void Termostat::stopPumps(){
+	for (int i = 0; i < this->furnacesCount; i++){
+		digitalWrite(this->pumpPins[i], !PUMP_ON);
+	}
 	this->activePump = 0;
-	digitalWrite(this->pumpPin, !PUMP_ON);
-	digitalWrite(this->pump2Pin, !PUMP_ON);
 }
 bool Termostat::isPumpActive(){
 	return this->activePump;
 }
+
 /*
  * funkcie pre chyby
  */
-
 int Termostat::getError(){
 	return this->error;
 }
@@ -265,15 +250,16 @@ void Termostat::setError(int error){
 	this->error = error;
 	if (error) this->errorState();
 }
+
 /*
  * chybovy stav - zapni cerpadla, otvor servo
  */
-
 void Termostat::errorState(){
-	digitalWrite(13, 1);
+	digitalWrite(this->errorLedPin, 1);
 
-	digitalWrite(this->pumpPin, PUMP_ON);
-	digitalWrite(this->pump2Pin, PUMP_ON);
+	for (int i = 0; i < this->furnacesCount; i++){
+		digitalWrite(this->pumpPins[i], PUMP_ON);
+	}
 
 	this->servoState = 1;
 	digitalWrite(this->servoOpenPin, SERVO_OPEN_ON);
@@ -300,9 +286,8 @@ void Termostat::resetVariables(){
 }
 
 /*
- * funkcie pre pracu s hodnotami
+ * functions for editing values
  */
-
 float Termostat::getValueByScreen(int screen){
 	switch (screen){
 		case 1:

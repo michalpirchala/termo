@@ -1,10 +1,10 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 /*
-Kody chyb:
-1 - menej ako 2 senzory teploty
-2 - vypadol senzor
-
+Error codes:
+1 - not according temp sensors count at start
+9 - test error state
+1X - sensor X not working properly
 */
 
 #define OK_DELAY 1000
@@ -18,7 +18,7 @@ Kody chyb:
 
 class Termostat{
 	public:
-		Termostat(DallasTemperature senors, int servoOpenPin, int servoClosePin, int servoTime, int pumpPin, int pump2Pin, int WinterPin);
+		Termostat(DallasTemperature senors, int servoOpenPin, int servoClosePin, int WinterPin, int errorLedPin, int servoTime, int furnacesCount, int *pumpPins, DeviceAddress *addresses);
 		bool update();
 		
 		float* getTemperatures();
@@ -28,9 +28,9 @@ class Termostat{
 		void setError(int error);
 		
 		float getWaterTemp();
-		float getBoilerTemp();
+		float getFurnaceTemp();
 		
-		int getActiveBoiler();
+		int getActiveFurnace();
 
 		void saveVariables(), loadVariables(), resetVariables();
 		
@@ -40,17 +40,19 @@ class Termostat{
 		bool isPumpActive(), isServoClosing(), isServoOpening(), isServoOpened();
 		
 	private:
-		float temperatures[3],//teploty zo senzorov
+		float temperatures[3],
 			diffServoOpen,
 			diffServoClose,
 			tempPump
 		;
 		
-		int tempPin, servoOpenPin, servoClosePin, pumpPin, pump2Pin, winterPin,
-			servoTime,	//ako dlho sa ma otvarat/zatvarat servo
-			tempCount,	//pocet senzorov pre kontrolu pocas behu
-			error,		//kod chyby
-			activeBoiler
+		int tempPin, servoOpenPin, servoClosePin, winterPin, errorLedPin,
+			servoTime,
+			tempCount,	//sensors count for runtime check
+			error,		//error code
+			activeFurnace,
+			furnacesCount,
+			*pumpPins
 		;
 
 		bool activePump, servoState, firstRun;
@@ -58,13 +60,13 @@ class Termostat{
 		unsigned long servoCloseTime, servoOpenTime;
 
 		DallasTemperature sensors;
+		DeviceAddress *addresses;
 		
-		void setActiveBoiler();
+		void setActiveFurnace();
 		void errorState();
 		void servoAction();
 		void pumpAction();
-		void controllTempCount();
+		void checkTempCount();
 		bool servoShouldStart(), servoShouldStop(), isWinterTime(), servoShouldStopBySeason(), servoShouldStartBySeason();
-		void startPump1(), startPump2(), stopPumps();
-
+		void startPump(), stopPumps();
 };

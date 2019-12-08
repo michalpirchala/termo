@@ -1,62 +1,44 @@
 #include <EEPROM.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <TM1638.h>
+#include <TM1638plus.h>
 #include "Display.h"
 
 #define TEMP_PIN 3
-#define PUMP_PIN 6
-#define PUMP2_PIN 10
 #define SERVO_OPEN_PIN 5
 #define SERVO_CLOSE_PIN 4
-
-#define SERVO_TIME 300
 #define WINTER_PIN 11
+#define ERROR_LED_PIN 13
 
-#define REFRESH_TIME 20
+#define SERVO_TIME 300	//seconds
+#define REFRESH_TIME 20	//seconds
+
+#define FURNACES_COUNT 2
+int pumpPins[FURNACES_COUNT] = {6, 10};
+DeviceAddress addresses[FURNACES_COUNT+1] = {0x00, 0x00, 0x00};
 
 OneWire oneWire(TEMP_PIN);
 DallasTemperature sensors(&oneWire);
-TM1638 TMmodul(8, 9, 7);
+TM1638plus TMmodul(8, 9, 7);
 
-Termostat termostat(sensors, SERVO_OPEN_PIN, SERVO_CLOSE_PIN, SERVO_TIME, PUMP_PIN, PUMP2_PIN, WINTER_PIN);
+Termostat termostat(sensors, SERVO_OPEN_PIN, SERVO_CLOSE_PIN, WINTER_PIN, ERROR_LED_PIN, SERVO_TIME, FURNACES_COUNT, pumpPins, addresses);
 Display display(&TMmodul, &termostat);
 
 void(* resetFunc) (void) = 0;
 
-unsigned long lastUpdateTime;
+unsigned long lastUpdateTime = 0;
 
 void setup() {
 	Serial.begin(9600);
-	Serial.print("Free RAM ");
-	Serial.println(freeRam());
 
-	delay(1000);
-
-	pinMode(13, OUTPUT);
-	pinMode(PUMP_PIN, OUTPUT);
-	pinMode(PUMP2_PIN, OUTPUT);
-	pinMode(SERVO_OPEN_PIN, OUTPUT);
-	pinMode(SERVO_CLOSE_PIN, OUTPUT);
-
-	pinMode(WINTER_PIN, INPUT_PULLUP);
-
-	digitalWrite(13, 0);
-
-	//init - everything runs
-	digitalWrite(PUMP_PIN, PUMP_ON);
-	digitalWrite(PUMP2_PIN, PUMP_ON);
-	digitalWrite(SERVO_OPEN_PIN, SERVO_OPEN_ON);
-	digitalWrite(SERVO_CLOSE_PIN, !SERVO_CLOSE_ON);
+	delay(500);
 
 	updateTermo();
 }
 
 void loop() {
-  //reset if time overflows
+	//reset if time overflows
 	if (millis()<lastUpdateTime) resetFunc();
-
-	Serial.print("Free RAM ");Serial.println(freeRam());
 
 	if (millis()>lastUpdateTime+REFRESH_TIME*1000){
 		updateTermo();
@@ -74,17 +56,4 @@ void updateTermo(){
 	termostat.update();
 	lastUpdateTime = millis();
 	display.setBlocked(0);
-}
-
-int freeRam()
-{
-	extern unsigned int __heap_start;
-	extern void *__brkval;
-	int free_memory;
-	int stack_here;
-	if (__brkval == 0)
-		free_memory = (int) &stack_here - (int) &__heap_start;
-	else
-		free_memory = (int) &stack_here - (int) __brkval; 
-	return (free_memory);
 }
