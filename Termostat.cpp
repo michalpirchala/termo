@@ -16,6 +16,7 @@ Termostat::Termostat(DallasTemperature *sensors, int servoOpenPin, int servoClos
 	this->servoCloseTime = 0;
 	this->servoState = 0;
 	this->firstRun = 1;
+	this->lastError = 0;
 
 	pinMode(this->errorLedPin, OUTPUT);
 	pinMode(this->servoOpenPin, OUTPUT);
@@ -263,9 +264,15 @@ bool Termostat::isPumpActive(){
 int Termostat::getError(){
 	return this->error;
 }
+int Termostat::getLastError(){
+	return this->lastError;
+}
 void Termostat::setError(int error){
 	this->error = error;
-	if (error) this->errorState();
+	if (error){
+		this->errorState();
+		this->lastError = error;
+	}
 }
 
 /*

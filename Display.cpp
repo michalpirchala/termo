@@ -61,8 +61,11 @@ void Display::doActionByButtons(){
 		case 0b01000000://
 
 			break;
-		case 0b10000000://
-
+		case 0b10000000://show last error
+			char message[10];
+			sprintf(message, "L.ERR %3d", this->termostat->getLastError());
+			this->showOnScreen(message);
+			delay(1000);
 			break;
 		case 0b11000000://test error state
 			this->termostat->setError(9);
@@ -71,7 +74,7 @@ void Display::doActionByButtons(){
 }
 
 void Display::showScreen(int screen){
-	char message[10];
+	char message[11];
 
 	if (this->termostat->getError()!=0){
 		sprintf(message, "ERR %4d", this->termostat->getError());

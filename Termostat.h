@@ -28,7 +28,7 @@ class Termostat{
 		float* getTemperatures();
 		int getTempCount();
 		
-		int getError();
+		int getError(), getLastError();
 		void setError(int error);
 		
 		float getWaterTemp();
@@ -53,6 +53,7 @@ class Termostat{
 		int tempPin, servoOpenPin, servoClosePin, winterPin, errorLedPin,
 			tempCount,	//sensors count for runtime check
 			error,		//error code
+			lastError,
 			activeFurnace,
 			furnacesCount,
 			*pumpPins
