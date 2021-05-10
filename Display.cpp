@@ -16,7 +16,7 @@ Display::Display(TM1638plus *module, Termostat *termostat){
 void Display::doAction(){
     this->buttons = this->module->readButtons();
 
-    if (this->buttons!=this->prevButtons && this->prevButtons==0b00000000){
+    if (this->buttons != this->prevButtons && this->prevButtons == 0b00000000){
         delay(50);
         this->buttons = this->module->readButtons();
         this->doActionByButtons();
@@ -34,17 +34,17 @@ void Display::doActionByButtons(){
             break;
         case 0b00000010://next screen
             this->mode++;
-            if (this->mode==4) this->mode = 0;
+            if (this->mode == 4) this->mode = 0;
             break;
         case 0b00000011://prev screen
             this->mode--;
-            if (this->mode==-1) this->mode = 3;
+            if (this->mode == -1) this->mode = 3;
             break;
         case 0b00000100://actual value -
-            this->termostat->lowerValueByScreen(this->mode);
+            this->termostat->increaseValueByScreen(this->mode);
             break;
         case 0b00001000://actual value +
-            this->termostat->upperValueByScreen(this->mode);
+            this->termostat->decreaseValueByScreen(this->mode);
             break;
         case 0b00010000://save values to memory
             this->termostat->saveVariables();
@@ -76,35 +76,35 @@ void Display::doActionByButtons(){
 void Display::showScreen(int screen){
     char message[11];
 
-    if (this->termostat->getError()!=0){
+    if (this->termostat->getError() != 0){
         sprintf(message, "ERR %4d", this->termostat->getError());
         this->showOnScreen(message);
         return;
     }
 
-    if (screen==0){
+    if (screen == 0){
         char str_ft[6], str_wt[6];
         dtostrf(this->termostat->getActiveFurnaceTemp(), 5, 2, str_ft);
         dtostrf(this->termostat->getWaterTemp(), 5, 2, str_wt);
         sprintf(message, "%s%s", str_ft, str_wt);
-    } else if (screen==1){
+    } else if (screen == 1){
         this->formatValueMsg(message, "RO", this->termostat->getValueByScreen(screen));
-    } else if (screen==2){
+    } else if (screen == 2){
         this->formatValueMsg(message, "RZ", this->termostat->getValueByScreen(screen));
-    } else if (screen==3){
+    } else if (screen == 3){
         this->formatValueMsg(message, "TC", this->termostat->getValueByScreen(screen));
     } else {
         sprintf(message, "%8d", screen);
     }
 
     //LEDs
-    this->module->setLED(7, ((screen >> 1) & 1));
-    this->module->setLED(6, ((screen >> 0) & 1));
+    this->module->setLED(7, (screen >> 1) & 1);
+    this->module->setLED(6, (screen >> 0) & 1);
     this->module->setLED(5, this->termostat->isServoClosing());
     this->module->setLED(4, this->termostat->isServoOpening());
     this->module->setLED(3, this->termostat->isServoOpened());
-    this->module->setLED(2, this->termostat->getActiveFurnace()==1);
-    this->module->setLED(1, this->termostat->getActiveFurnace()==0);
+    this->module->setLED(2, this->termostat->getActiveFurnace() == 1);
+    this->module->setLED(1, this->termostat->getActiveFurnace() == 0);
     this->showOnScreen(message);
 }
 void Display::showOnScreen(char *message){

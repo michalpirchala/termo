@@ -2,6 +2,8 @@
 #include <EEPROM.h>
 #include "Debug.h"
 
+#define TEMP_REQUEST_DELAY 1000
+
 Termostat::Termostat(DallasTemperature *sensors, int servoOpenPin, int servoClosePin, int winterPin, int errorLedPin, int servoTime, int furnacesCount, int *pumpPins, DeviceAddress *addresses){
     this->sensors = sensors;
     this->servoOpenPin = servoOpenPin;
@@ -42,11 +44,12 @@ Termostat::Termostat(DallasTemperature *sensors, int servoOpenPin, int servoClos
 }
 
 void Termostat::checkTempCount(){
+    sensors->begin();
+    
     this->tempCount = this->sensors->getDeviceCount();
     
-    if (this->tempCount!=this->furnacesCount+1){
-
-    PRINTLN("ERROR: Temp count fail: ", this->tempCount);
+    if (this->tempCount != this->furnacesCount+1){
+        PRINTLN("ERROR: Temp count fail: ", this->tempCount);
         this->setError(1);
     } else {
         this->setError(0);
@@ -57,24 +60,25 @@ bool Termostat::update(){
     int i;
     int hasError = 0;
     
-    if (this->getError()==1){
+    if (this->getError() == 1){
         this->checkTempCount();
         return false;
     }
 
     this->sensors->requestTemperatures();
     
-    for (i=0;i<this->tempCount;i++){
-        this->temperatures[i] = this->sensors->getTempC(this->addresses[i]);
+    for (i=0;i < this->tempCount;i++){
+        this->temperatures[i] = this->requestTemperature(i);
 
-        if (this->temperatures[i]==-127 || this->temperatures[i]==85){
-
-            PRINT("ERROR: Temperature reading fail. Sensor: ", i);
-            PRINTLN(" reading: ", this->temperatures[i]);
+        if (this->temperatures[i] == -127){
+            PRINTSLN("ERROR temperature reading. Entering error state");
             hasError = 10+i;
         }
 
-        if (i+1 != this->tempCount) delay(1000);
+        // delay if this is not the last sensor
+        if (i+1 != this->tempCount){
+            delay(TEMP_REQUEST_DELAY);
+        }
     }
 
     //if error occured at getting temperature, set error to hasError code
@@ -122,6 +126,24 @@ bool Termostat::update(){
     return true;
 }
 
+float Termostat::requestTemperature(int sensorId){
+    float temperature;
+
+    for (int c = 1; c <= 5; c++){
+        temperature = this->sensors->getTempC(this->addresses[sensorId]);
+        if (temperature == -127 || temperature == 85){
+            PRINT("ERROR: Temperature reading fail. Sensor: ", sensorId);
+            PRINT(" Attempt: ", c);
+            PRINTLN(" Reading: ", temperature);
+            delay(5*TEMP_REQUEST_DELAY);
+        } else {
+            break;
+        }
+    }
+
+    return temperature;
+}
+
 int Termostat::getTempCount(){
     return this->tempCount;
 }
@@ -159,8 +181,8 @@ void Termostat::setActiveFurnace(){
     if (this->furnacesCount>1){
         float highestTemp = this->temperatures[1];
 
-        for (int i = 2; i<=this->tempCount; i++){
-            if (this->temperatures[i]>highestTemp) this->activeFurnace = i-1;
+        for (int i = 2; i <= this->tempCount; i++){
+            if (this->temperatures[i] > highestTemp) this->activeFurnace = i-1;
         }
     }    
 }
@@ -206,7 +228,7 @@ bool Termostat::isServoOpened(){
     return this->servoState;
 }
 bool Termostat::isServoOpening(){
-    if (this->servoOpenTime==0) return false;
+    if (this->servoOpenTime == 0) return false;
     bool isOpening = millis() - this->servoOpenTime < this->servoTime*1000;
 
     //reset openTime if not opening anymore, to prevent opening after millis oferflows
@@ -215,7 +237,7 @@ bool Termostat::isServoOpening(){
     return isOpening;
 }
 bool Termostat::isServoClosing(){
-    if (this->servoCloseTime==0) return false;
+    if (this->servoCloseTime == 0) return false;
     bool isClosing = millis() - this->servoCloseTime < this->servoTime*1000;
 
     if (!isClosing) this->servoCloseTime = 0;
@@ -237,10 +259,10 @@ bool Termostat::servoShouldCloseBySeason(){
     }
 }
 bool Termostat::servoShouldOpen(){
-    return this->getActiveFurnaceTemp()>=this->getWaterTemp()+this->diffServoOpen;
+    return this->getActiveFurnaceTemp() >= this->getWaterTemp() + this->diffServoOpen;
 }
 bool Termostat::servoShouldClose(){
-    return this->getActiveFurnaceTemp()<this->getWaterTemp()+this->diffServoClose;
+    return this->getActiveFurnaceTemp() < this->getWaterTemp() + this->diffServoClose;
 }
 
 /*
@@ -248,10 +270,10 @@ bool Termostat::servoShouldClose(){
  */
 void Termostat::pumpAction(){
     if (this->isWinterTime()){//in winter according to set tempPump
-        if (this->getActiveFurnaceTemp()>=this->tempPump){
+        if (this->getActiveFurnaceTemp() >= this->tempPump){
             this->startPump();
         }
-        if (this->getActiveFurnaceTemp()<=this->tempPump-PUMP_OFF_HYST){
+        if (this->getActiveFurnaceTemp() <= this->tempPump - PUMP_OFF_HYST){
             this->stopPumps();
         }
     } else {//summer
@@ -265,7 +287,7 @@ void Termostat::pumpAction(){
 void Termostat::startPump(){
     this->activePump = 0;
     for (int i = 0; i < this->furnacesCount; i++){
-        if (this->activeFurnace==i){
+        if (this->activeFurnace == i){
             digitalWrite(this->pumpPins[i], PUMP_ON);
             this->activePump = 1;
         } else {
@@ -347,11 +369,12 @@ float Termostat::getValueByScreen(int screen){
             return this->tempPump;
     }
 }
-void Termostat::lowerValueByScreen(int screen){
+void Termostat::decreaseValueByScreen(int screen){
     switch (screen){
         case 1:
-            if (this->diffServoOpen>this->diffServoClose)
+            if (this->diffServoOpen > this->diffServoClose){
                 this->diffServoOpen -= VALUE_CHANGE_STEP;
+            }
             break;
         case 2:
             this->diffServoClose -= VALUE_CHANGE_STEP;
@@ -361,14 +384,15 @@ void Termostat::lowerValueByScreen(int screen){
             break;
     }
 }
-void Termostat::upperValueByScreen(int screen){
+void Termostat::increaseValueByScreen(int screen){
     switch (screen){
         case 1:
             this->diffServoOpen += VALUE_CHANGE_STEP;
             break;
         case 2:
-            if (this->diffServoOpen>this->diffServoClose)
+            if (this->diffServoOpen > this->diffServoClose){
                 this->diffServoClose += VALUE_CHANGE_STEP;
+            }
             break;
         case 3:
             this->tempPump += VALUE_CHANGE_STEP;
@@ -377,5 +401,5 @@ void Termostat::upperValueByScreen(int screen){
 }
 
 bool Termostat::isWinterTime(){
-    return (digitalRead(this->winterPin)==WINTER_ON);
+    return digitalRead(this->winterPin) == WINTER_ON;
 }

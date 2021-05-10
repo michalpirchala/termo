@@ -39,7 +39,7 @@ class Termostat{
         void saveVariables(), loadVariables(), resetVariables();
         
         float getValueByScreen(int screen);
-        void lowerValueByScreen(int screen), upperValueByScreen(int screen);
+        void decreaseValueByScreen(int screen), increaseValueByScreen(int screen);
 
         bool isPumpActive(), isServoClosing(), isServoOpening(), isServoOpened(), isWinterTime();
         
@@ -73,4 +73,5 @@ class Termostat{
         void checkTempCount();
         bool servoShouldOpen(), servoShouldClose(), servoShouldCloseBySeason(), servoShouldOpenBySeason();
         void startPump(), stopPumps();
+		float requestTemperature(int sensorId);
 };
